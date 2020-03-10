@@ -10,8 +10,36 @@ namespace Exchange {
         enum { ID = ID_AVSCONTROLLER };
         virtual ~IAVSController(){};
 
+        //@event
+        struct INotification : virtual public Core::IUnknown {
+            enum { ID = ID_AVSCONTROLLER_NOTIFICATION };
+            virtual ~INotification(){};
+
+            enum dialoguestate {
+                IDLE,
+                LISTENING,
+                EXPECTING,
+                THINKING,
+                SPEAKING
+            };
+
+            /// @brief Notifies about dialog state changes
+            /// @param state a new state (e.g. SPEAKING)
+            virtual void DialogueStateChange(const int state) const = 0;
+        };
+
+        virtual void Register(INotification* sink) = 0;
+        virtual void Unregister(INotification* sink) = 0;
+
+        /// @brief Mute
+        /// @param mute Mute or umute (e.g. true)
+        /// @return 0 on success, otherwise error code
         virtual uint32_t Mute(const bool mute) = 0;
 
+        /// @brief Record
+        /// @param start Start or stop voice recording (e.g. true)
+        /// @retval 0 success
+        /// @retval otherwise error code
         virtual uint32_t Record(const bool start) = 0;
     };
 
@@ -27,20 +55,6 @@ namespace Exchange {
         virtual IAVSController* Controller() = 0;
         virtual void StateChange(PluginHost::IShell* audioSource) = 0;
     };
-
-
-       //@JSON-API
-
-        // struct ICommands : virtual public Core::IUnknown {
-        //     enum { ID = ID_AVSCLIENT_INPUT };
-        //     virtual ~ICommand(){};
-
-        //     virtual uint32_t Mute() = 0;
-        //     virtual uint32_t MicrophoneToggle() = 0;
-        //     virtual uint32_t Tap() = 0;
-        //     virtual uint32_t HoldToggled() = 0;
-        // };
-
 
 } // Exchange
 } // WPEFramework
