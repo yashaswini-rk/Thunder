@@ -158,7 +158,8 @@ namespace Exchange {
 
         ID_WEB_BROWSER,
 
-        ID_AVSCLIENT
+        ID_AVSCLIENT,
+        ID_AVSCONTROLLER
     };
 }
 }
