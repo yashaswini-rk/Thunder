@@ -23,7 +23,7 @@ namespace Exchange {
                 SPEAKING
             };
 
-            /// @brief Notifies about dialog state changes
+            /// @brief notifies about dialogue state changes
             /// @param state The new state (e.g. SPEAKING)
             virtual void DialogueStateChange(const dialoguestate state) const = 0;
         };
