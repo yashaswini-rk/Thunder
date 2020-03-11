@@ -31,12 +31,12 @@ namespace Exchange {
         virtual void Register(INotification* sink) = 0;
         virtual void Unregister(INotification* sink) = 0;
 
-        /// @brief Mute
+        /// @brief Mutes both AVS_SPEAKER_VOLUME and AVS_ALERTS_VOLUME
         /// @param mute Mute or umute (e.g. true)
         /// @return 0 on success, otherwise error code
         virtual uint32_t Mute(const bool mute) = 0;
 
-        /// @brief Record
+        /// @brief Starts voice recording
         /// @param start Start or stop voice recording (e.g. true)
         /// @retval 0 success
         /// @retval otherwise error code
