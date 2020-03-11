@@ -24,8 +24,8 @@ namespace Exchange {
             };
 
             /// @brief Notifies about dialog state changes
-            /// @param state a new state (e.g. SPEAKING)
-            virtual void DialogueStateChange(const int state) const = 0;
+            /// @param state The new state (e.g. SPEAKING)
+            virtual void DialogueStateChange(const dialoguestate state) const = 0;
         };
 
         virtual void Register(INotification* sink) = 0;
