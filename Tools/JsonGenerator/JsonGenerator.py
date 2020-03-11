@@ -250,7 +250,7 @@ class JsonEnum(JsonType):
         self.type = enumType
         if "typename" in schema:
             self.cpptype = schema["typename"]
-            self.enumName = MakeEnum(self.cpptype.capitalize())
+            self.enumName = MakeEnum(self.cpptype.replace("::","")[1:].capitalize())
         else:
             self.enumName = MakeEnum(self.name.capitalize())
         self.enumerators = schema["enum"]
@@ -757,7 +757,7 @@ def LoadInterface(file):
                 if size:
                     if isinstance(size, list):
                         properties["enum"] = size
-                        properties["typename"] = var.type.Type().name
+                        properties["typename"] = var.type.Type().full_name.replace("::"+INTERFACE_NAMESPACE+"::","")
                         properties["enumtyped"] = var.type.Type().scoped
                         if isinstance(signed, list):
                             properties["enumvalues"] = signed
