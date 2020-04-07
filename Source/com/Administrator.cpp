@@ -252,7 +252,11 @@ namespace RPC {
             std::list<std::pair<uint32_t, Core::IUnknown*>>::iterator loop(remotes->second.begin());
             while (loop != remotes->second.end()) {
                 // We will release on behalf of the other side :-)
-                loop->second->Release();
+                if (loop->second != nullptr) {
+                    loop->second->Release();
+                } else {
+                    printf("Apparently, this should not be null but it is.\n");
+                }
                 loop++;
             }
             _channelReferenceMap.erase(remotes);
