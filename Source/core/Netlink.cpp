@@ -74,30 +74,20 @@ namespace Core {
     uint16_t Netlink::Deserialize(const uint8_t stream[], const uint16_t streamLength)
     {
         const nlmsghdr* header = reinterpret_cast<const nlmsghdr*>(stream);
-        uint16_t dataLeft = streamLength;
+        uint16_t dataRead = 0;
         
-        while (NLMSG_OK(header, dataLeft)) {
-            if (header->nlmsg_type != NLMSG_NOOP) {
-                if (header->nlmsg_type == NLMSG_DONE) {
-                    _isMultimessage = false;
-                } else {                    
-                    _type = header->nlmsg_type;
-                    _flags = header->nlmsg_flags;
-                    _mySequence = header->nlmsg_seq;
+        _type = header->nlmsg_type;
+        _flags = header->nlmsg_flags;
+        ASSERT(_mySequence == header->nlmsg_seq);
 
-                    _isMultimessage = header->nlmsg_flags & NLM_F_MULTI;
-                    
-                    Read(
-                        reinterpret_cast<const uint8_t *>(NLMSG_DATA(header)), 
-                        header->nlmsg_len - sizeof(header)
-                    );
-                }
-            }
+        _isMultimessage = header->nlmsg_flags & NLM_F_MULTI;
+        
+        dataRead = Read(
+            reinterpret_cast<const uint8_t *>(NLMSG_DATA(header)), 
+            NLMSG_PAYLOAD(header, 0)
+        );
 
-            header = NLMSG_NEXT(header, dataLeft);
-        }
-
-        return _isMultimessage ? 0 : streamLength - dataLeft;
+        return streamLength;
     }
 
     uint32_t SocketNetlink::Send(const Core::Netlink& outbound, const uint32_t waitTime)
@@ -152,11 +142,15 @@ namespace Core {
 
         if (myEntry.Wait(waitTime) == false) {
             result = Core::ERROR_RPC_CALL_FAILED;
+            for (auto& p : _pending) {
+                uint8_t buff[4096];
+                p.Serialize(buff, 4096);
+            }
         } else {
             result = Core::ERROR_NONE;
-        }
-
+        }        
         // if we leave we need to take out "our" element.
+
         _adminLock.Lock();
 
         PendingList::iterator index(std::find(_pending.begin(), _pending.end(), outbound));
@@ -168,7 +162,6 @@ namespace Core {
         }
 
         _adminLock.Unlock();
-
         return (result);
     }
 
@@ -181,15 +174,13 @@ namespace Core {
 
             _adminLock.Lock();
 
-            PendingList::iterator index(_pending.begin());
+            PendingList::iterator index (_pending.begin());
+            while (index != _pending.end()) {
+                if (index->IsSend() == false) {
+                    result += index->Serialize(dataFrame + result, maxSendSize - result);
+                }   
 
-            // Skip all, already send items
-            while ((index != _pending.end()) && (index->IsSend() == true)) {
-                index++;
-            }
-
-            if (index != _pending.end()) {
-                result = index->Serialize(dataFrame, maxSendSize);
+                index++;             
             }
 
             _adminLock.Unlock();
@@ -197,9 +188,8 @@ namespace Core {
 #ifdef DEBUG_FRAMES
             DumpFrame("SEND", dataFrame, result);
 #endif
-
-            result = NLMSG_ALIGN(result);
         }
+
         return (result);
     }
 
@@ -207,7 +197,6 @@ namespace Core {
     {
 
         uint16_t result = receivedSize;
-        Netlink::Frames frames(dataFrame, receivedSize);
 
 #ifdef DEBUG_FRAMES
         DumpFrame("RECEIVED", dataFrame, result);
@@ -215,26 +204,36 @@ namespace Core {
 
         _adminLock.Lock();
 
-        while (frames.Next() == true) {
+        nlmsghdr* header = reinterpret_cast<nlmsghdr*>(dataFrame);
+        uint16_t dataLeft = receivedSize;
+
+        while (NLMSG_OK(header, dataLeft) == true) {
 
             PendingList::iterator index(_pending.begin());
 
             // Check if this is a response to something pending..
-            while ((index != _pending.end()) && (index->Sequence() != frames.Sequence())) {
+            while ((index != _pending.end()) && (index->Sequence() != header->nlmsg_seq)) {
                 index++;
             }
 
+            uint32_t read = 0;
             if (index != _pending.end()) {
-
-                index->Deserialize(frames);
+                read += index->Deserialize(dataFrame, dataLeft);
             } else {
-                Deserialize(frames.RawData(), frames.RawSize());
+                read += Deserialize(dataFrame, dataLeft);
             }
-        }
 
+            ASSERT(dataLeft >= read);
+
+            dataLeft -= read;
+            dataFrame += read;
+
+            header = reinterpret_cast<nlmsghdr*>(dataFrame);
+        }
+  
         _adminLock.Unlock();
 
-        return (result);
+        return (receivedSize - dataLeft);
     }
 
     // Signal a state change, Opened, Closed or Accepted

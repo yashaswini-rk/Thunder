@@ -85,85 +85,6 @@ namespace Core {
         };
 
     public:
-        class EXTERNAL Frames {
-        private:
-            Frames() = delete;
-            Frames(const Frames&) = delete;
-            Frames& operator=(const Frames&) = delete;
-
-        public:
-            Frames(const uint8_t dataFrame[], const uint16_t receivedSize)
-                : _data(dataFrame)
-                , _size(receivedSize)
-                , _offset(~0)
-            {
-            }
-            ~Frames()
-            {
-            }
-
-        public:
-            inline bool IsValid() const
-            {
-                return (_offset < _size);
-            }
-            inline bool Next()
-            {
-
-                if (_offset == static_cast<uint16_t>(~0)) {
-                    _offset = 0;
-                } else if (_offset < _size) {
-                    _offset += NLMSG_ALIGN(Message()->nlmsg_len);
-                }
-
-                if ((_offset < _size) && (NLMSG_OK(Message(), _size - _offset) == false)) {
-                    _offset = _size;
-                }
-
-                return (IsValid());
-            }
-            inline uint32_t Type() const
-            {
-                return (Message()->nlmsg_type);
-            }
-            inline uint32_t Sequence() const
-            {
-                return (Message()->nlmsg_seq);
-            }
-            inline uint32_t Flags() const
-            {
-                return (Message()->nlmsg_flags);
-            }
-            inline const uint8_t* Data() const
-            {
-                return (reinterpret_cast<const uint8_t*>(NLMSG_DATA(Message())));
-            }
-            inline uint16_t Size() const
-            {
-                return (Message()->nlmsg_len - NLMSG_HDRLEN);
-            }
-            inline const uint8_t* RawData() const
-            {
-                return (&(_data[_offset]));
-            }
-            inline uint16_t RawSize() const
-            {
-                return (Message()->nlmsg_len);
-            }
-
-        private:
-            inline const struct nlmsghdr* Message() const
-            {
-                return (reinterpret_cast<const struct nlmsghdr*>(&(_data[_offset])));
-            }
-
-        private:
-            const uint8_t* _data;
-            uint16_t _size;
-            uint16_t _offset;
-        };
-
-    public:
         Netlink()
             : _type(0)
             , _flags(0)
@@ -309,7 +230,7 @@ namespace Core {
     private:
         SocketNetlink(const SocketNetlink&) = delete;
         SocketNetlink& operator=(const SocketNetlink&) = delete;
-
+    protected:
         class Message {
         private:
             Message() = delete;
@@ -346,22 +267,53 @@ namespace Core {
             {
                 return (_state != LOADED);
             }
+            inline bool NeedResponse() const 
+            {
+                return _inbound != nullptr;
+            }
             inline uint32_t Sequence() const
             {
                 return (_outbound.Sequence());
             }
-            inline void Deserialize(const Netlink::Frames& frame)
+            inline uint16_t Deserialize(uint8_t buffer[], const uint16_t length)
             {
+                nlmsghdr* header = reinterpret_cast<nlmsghdr*>(buffer);
+                uint16_t dataLeft = length;
+                
+                while (NLMSG_OK(header, dataLeft) && header->nlmsg_seq == Sequence()) {
+                    if (header->nlmsg_type != NLMSG_NOOP) {
+                        if (header->nlmsg_type == NLMSG_DONE) {
+                            _isMultimessage = false;
+                        } else {                    
+                            _inbound->Deserialize(
+                                reinterpret_cast<uint8_t*>(header), 
+                                header->nlmsg_len
+                            );
 
-                ASSERT(frame.IsValid() == true);
+                            _isMultimessage = header->nlmsg_flags & NLM_F_MULTI;
+                        }
+                    }
 
-                if (frame.Type() == NLMSG_ERROR) {
-                    // It means we received an error.
-                    _state = FAILURE;
-                    _signaled.SetEvent();
-                } else if ((_inbound != nullptr) && (_inbound->Deserialize(frame.RawData(), frame.RawSize()) != 0)) {
+                    if (_isMultimessage) {
+                        header = NLMSG_NEXT(header, dataLeft);
+                    } else {
+                        dataLeft -= NLMSG_ALIGN(header->nlmsg_len);
+                        break;
+                    }
+                }
+
+                // We are done only if all response messages arrived.
+                // If message is still in multimessage state, we should
+                // wait for more data to signal a success
+                if (!_isMultimessage || header->nlmsg_type == NLMSG_ERROR) {
+                    if (header->nlmsg_type == NLMSG_ERROR) {
+                        _state = FAILURE;
+                    }
+
                     _signaled.SetEvent();
                 }
+
+                return length - dataLeft;
             }
             inline uint16_t Serialize(uint8_t buffer[], const uint16_t length) const
             {
@@ -383,6 +335,7 @@ namespace Core {
             inline bool Wait(const uint32_t waitTime)
             {
                 bool result = (_signaled.Lock(waitTime) == Core::ERROR_NONE ? true : false);
+
                 return (result);
             }
 
@@ -391,12 +344,13 @@ namespace Core {
             Netlink* _inbound;
             mutable Core::Event _signaled;
             mutable state _state;
+            bool _isMultimessage;
         };
         typedef std::list<Message> PendingList;
 
     public:
         SocketNetlink(const Core::NodeId& destination)
-            : SocketDatagram(false, destination, Core::NodeId(), 512, 1024)
+            : SocketDatagram(false, destination, Core::NodeId(), 10096, 104096)
             , _adminLock()
         {
         }
