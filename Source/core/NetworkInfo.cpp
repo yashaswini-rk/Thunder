@@ -553,7 +553,7 @@ namespace Core {
             }
             ~SocketIPNetworks() = default;
 
-            // Subscribe / unsubscribe to network events like interface UP, ip change. mac change etc...
+            // Subscribe / unsubscribe to network events like interface UP/DOWN, IP change. MAC change etc...
             void AddEventObserver(INetworkNotification* callback)
             {
                 _callbacks.push_back(callback);
@@ -614,20 +614,16 @@ namespace Core {
             virtual uint16_t Read(const uint8_t stream[], const uint16_t length) override
             {
                 uint16_t result = 0;
-                printf("## Got FetchType response %d\n", Type());
 
                 if ((Type() == RTM_NEWLINK) || (Type() == RTM_DELLINK) || (Type() == RTM_GETLINK) || (Type() == RTM_SETLINK)) {
                     const struct ifinfomsg* iface = reinterpret_cast<const struct ifinfomsg*>(stream);
                     std::map<uint32_t, Network>::iterator index(_interfaces.find(iface->ifi_index));
-                    printf("## Interface index %d\n", iface->ifi_index);
 
                     if (index == _interfaces.end()) {
-                        printf("### Adding new interface %d!\n", iface->ifi_index);
                         _interfaces.emplace(std::piecewise_construct,
                             std::forward_as_tuple(iface->ifi_index),
                             std::forward_as_tuple(iface->ifi_index, reinterpret_cast<const struct rtattr*>(IFLA_RTA(iface)), length - sizeof(struct ifinfomsg)));
                     } else {
-                        printf("### Updateing interface %d!\n", iface->ifi_index);
                         index->second.Update(reinterpret_cast<const struct rtattr*>(IFLA_RTA(iface)), length - sizeof(struct ifinfomsg));
                     }
                 } else if (Type() == NLMSG_ERROR) {
@@ -732,7 +728,6 @@ namespace Core {
         private:
             virtual uint16_t Write(uint8_t stream[], const uint16_t length) const override
             {
-                printf("############### WRITING ################\n");
                 uint16_t result = sizeof(struct ifaddrmsg) + 2 * (RTA_LENGTH(_node.Type() == NodeId::TYPE_IPV6 ? 16 : 4));
 
                 ASSERT(length >= result);
@@ -760,13 +755,10 @@ namespace Core {
                 attribs->rta_len = (_node.Type() == NodeId::TYPE_IPV6 ? RTA_LENGTH(16) : RTA_LENGTH(4));
                 memcpy(RTA_DATA(attribs), data, _node.Type() == NodeId::TYPE_IPV6 ? 16 : 4);
 
-                printf("############### DONE WRITING ################\n");
-
                 return (result);
             }
             virtual uint16_t Read(const uint8_t stream[], const uint16_t length) override
             {
-                printf("############### READING ################\n");
                 uint16_t result = 0;
 
                 if ((Type() == RTM_NEWADDR) || (Type() == RTM_DELADDR) || (Type() == RTM_GETADDR)) {
@@ -786,7 +778,6 @@ namespace Core {
                     } 
                 }
 
-                printf("######## DONE READING ##########\n");
                 return (length);
             }
 
@@ -1243,21 +1234,21 @@ namespace Core {
     {
         IPAddressModifyType<true> modifier(*this, address);
 
-        return (_channel->Exchange(modifier, modifier, 0));
+        return (_channel->Exchange(modifier, modifier,  Core::infinite));
     }
 
     uint32_t IPNetworks::Network::Delete(const IPNode& address)
     {
         IPAddressModifyType<false> modifier(*this, address);
 
-        return (_channel->Exchange(modifier, modifier, 0));
+        return (_channel->Exchange(modifier, modifier, Core::infinite));
     }
 
     uint32_t IPNetworks::Network::Gateway(const IPNode& network, const NodeId& gateway)
     {
         IPRouteModifyType<true> modifier(*this, network, gateway);
 
-        return (_channel->Exchange(modifier, modifier, 0));
+        return (_channel->Exchange(modifier, modifier, Core::infinite));
     }
 
     static IPNetworks networkController;
